@@ -1,0 +1,80 @@
+#include <iostream>
+#include <string>
+using namespace std;
+
+// Base class Temperature
+class Temperature {
+protected:
+    double value;  // Temperature value in Celsius
+public:
+    Temperature(double value) {
+        this->value = value;  // Initialize the value in Celsius
+    }
+
+    virtual double convert() = 0;  // Pure virtual function for conversion
+    virtual void display() = 0;    // Pure virtual function to display converted temperature
+};
+
+// Celsius class derived from Temperature
+class Celsius : public Temperature {
+public:
+    Celsius(double value) : Temperature(value) {}
+
+    double convert() override {
+        // No conversion needed, already in Celsius
+        return value;
+    }
+
+    void display() override {
+        cout << "Temperature in Celsius: " << convert() << "°C" << endl;
+    }
+};
+
+// Fahrenheit class derived from Temperature
+class Fahrenheit : public Temperature {
+public:
+    Fahrenheit(double value) : Temperature(value) {}
+
+    double convert() override {
+        // Convert Celsius to Fahrenheit
+        return (value * 9 / 5) + 32;
+    }
+
+    void display() override {
+        cout << "Temperature in Fahrenheit: " << convert() << "°F" << endl;
+    }
+};
+
+// Kelvin class derived from Temperature
+class Kelvin : public Temperature {
+public:
+    Kelvin(double value) : Temperature(value) {}
+
+    double convert() override {
+        // Convert Celsius to Kelvin
+        return value + 273.15;
+    }
+
+    void display() override {
+        cout << "Temperature in Kelvin: " << convert() << " K" << endl;
+    }
+};
+
+int main() {
+    double tempCelsius;
+
+    cout << "Enter temperature in Celsius: ";
+    cin >> tempCelsius;
+
+    // Create objects for different temperature scales
+    Celsius celsius(tempCelsius);
+    Fahrenheit fahrenheit(tempCelsius);
+    Kelvin kelvin(tempCelsius);
+
+    // Display the converted temperatures
+    celsius.display();
+    fahrenheit.display();
+    kelvin.display();
+
+    return 0;
+}
