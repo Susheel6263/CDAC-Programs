@@ -1,0 +1,416 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <map>
+#include <ctime>
+#include <iomanip>
+#include <memory>
+
+// Forward declarations
+class Driver;
+class Trip;
+
+// Date utility class
+class Date {
+private:
+    int day;
+    int month;
+    int year;
+
+public:
+    Date(int d = 1, int m = 1, int y = 2025) : day(d), month(m), year(y) {}
+    
+    std::string toString() const {
+        return std::to_string(day) + "/" + std::to_string(month) + "/" + std::to_string(year);
+    }
+    
+    // Calculate days between two dates (simplified)
+    int daysBetween(const Date& other) const {
+        // Simple approximation for demonstration
+        int thisDays = year * 365 + month * 30 + day;
+        int otherDays = other.year * 365 + other.month * 30 + other.day;
+        return thisDays - otherDays;
+    }
+};
+
+// Time utility class
+class Time {
+private:
+    int hour;
+    int minute;
+
+public:
+    Time(int h = 0, int m = 0) : hour(h), minute(m) {}
+    
+    std::string toString() const {
+        std::stringstream ss;
+        ss << std::setfill('0') << std::setw(2) << hour << ":" 
+           << std::setfill('0') << std::setw(2) << minute;
+        return ss.str();
+    }
+};
+
+// Truck class to manage truck details
+class Truck {
+private:
+    std::string model;
+    double fuelCapacity;
+    double currentFuel;
+    Date lastMaintenanceDate;
+    int maintenanceIntervalDays;
+    double loadCapacity; // in tonnes
+    std::vector<Trip*> tripHistory;
+    Driver* currentDriver;
+
+public:
+    Truck(const std::string& mdl, double fuelCap, double loadCap, int maintInterval) 
+        : model(mdl), fuelCapacity(fuelCap), currentFuel(fuelCap), 
+          loadCapacity(loadCap), maintenanceIntervalDays(maintInterval), 
+          currentDriver(nullptr) {
+        time_t now = time(nullptr);
+        tm* localTime = localtime(&now);
+        lastMaintenanceDate = Date(localTime->tm_mday, localTime->tm_mon + 1, localTime->tm_year + 1900);
+    }
+
+    ~Truck() {
+        // Cleanup is handled by the Factory class which owns the trips
+    }
+
+    // Getters
+    std::string getModel() const { return model; }
+    double getFuelRemaining() const { return currentFuel; }
+    double getLoadCapacity() const { return loadCapacity; }
+    int getDaysUntilMaintenance() const {
+        Date currentDate;
+        int daysSinceLastMaintenance = currentDate.daysBetween(lastMaintenanceDate);
+        return maintenanceIntervalDays - daysSinceLastMaintenance;
+    }
+    Driver* getDriver() const { return currentDriver; }
+
+    // Setters and operations
+    void refillFuel(double amount) {
+        if (amount < 0) {
+            throw std::invalid_argument("Refill amount cannot be negative");
+        }
+        
+        currentFuel += amount;
+        if (currentFuel > fuelCapacity) {
+            currentFuel = fuelCapacity;
+        }
+    }
+
+    void consumeFuel(double amount) {
+        if (amount < 0) {
+            throw std::invalid_argument("Consumption amount cannot be negative");
+        }
+        
+        if (currentFuel < amount) {
+            throw std::runtime_error("Not enough fuel for operation");
+        }
+        
+        currentFuel -= amount;
+    }
+
+    void performMaintenance() {
+        time_t now = time(nullptr);
+        tm* localTime = localtime(&now);
+        lastMaintenanceDate = Date(localTime->tm_mday, localTime->tm_mon + 1, localTime->tm_year + 1900);
+    }
+
+    void assignDriver(Driver* driver) {
+        currentDriver = driver;
+    }
+
+    void addTrip(Trip* trip) {
+        tripHistory.push_back(trip);
+    }
+
+    // Display truck information
+    void displayInfo() const;
+};
+
+// Driver class to manage driver details
+class Driver {
+private:
+    std::string name;
+    std::string phoneNumber;
+    Date joiningDate;
+    Date leavingDate; // Default will be a future date for active drivers
+    Truck* assignedTruck;
+
+public:
+    // Static member to ensure every driver has a unique vehicle number
+    static std::map<std::string, Driver*> driverRegistry;
+    std::string vehicleNumber; // This is static per driver, not shared
+
+    Driver(const std::string& driverName, const std::string& phone, 
+           const std::string& vehicleNum, const Date& joinDate = Date()) 
+        : name(driverName), phoneNumber(phone), joiningDate(joinDate),
+          leavingDate(Date(31, 12, 9999)), vehicleNumber(vehicleNum),
+          assignedTruck(nullptr) {
+        
+        // Register this driver with their vehicle number
+        driverRegistry[vehicleNumber] = this;
+    }
+
+    ~Driver() {
+        // Remove from registry on destruction
+        driverRegistry.erase(vehicleNumber);
+    }
+
+    // Getters
+    std::string getName() const { return name; }
+    std::string getPhoneNumber() const { return phoneNumber; }
+    Date getJoiningDate() const { return joiningDate; }
+    Date getLeavingDate() const { return leavingDate; }
+    Truck* getAssignedTruck() const { return assignedTruck; }
+
+    // Setters
+    void setPhoneNumber(const std::string& phone) { phoneNumber = phone; }
+    void setLeavingDate(const Date& date) { leavingDate = date; }
+    
+    void assignTruck(Truck* truck) {
+        assignedTruck = truck;
+        if (truck) {
+            truck->assignDriver(this);
+        }
+    }
+
+    // Display driver information
+    void displayInfo() const;
+
+    // Static method to find driver by vehicle number
+    static Driver* findByVehicleNumber(const std::string& vehicleNum) {
+        auto it = driverRegistry.find(vehicleNum);
+        if (it != driverRegistry.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+};
+
+// Initialize static member
+std::map<std::string, Driver*> Driver::driverRegistry;
+
+// Trip class to track trips made by trucks
+class Trip {
+private:
+    Date tripDate;
+    Time checkInTime;
+    Time checkOutTime;
+    double concreteLoad; // in tonnes
+    double fuelAllocated;
+    Truck* truck;
+    Driver* driver;
+
+public:
+    Trip(Truck* t, Driver* d, const Date& date, const Time& checkIn, 
+         double concrete, double fuel) 
+        : tripDate(date), checkInTime(checkIn), concreteLoad(concrete), 
+          fuelAllocated(fuel), truck(t), driver(d) {
+        
+        if (t && d) {
+            t->addTrip(this);
+        }
+    }
+
+    // Setters
+    void setCheckOutTime(const Time& time) { checkOutTime = time; }
+
+    // Getters
+    Date getTripDate() const { return tripDate; }
+    Time getCheckInTime() const { return checkInTime; }
+    Time getCheckOutTime() const { return checkOutTime; }
+    double getConcreteLoad() const { return concreteLoad; }
+    double getFuelAllocated() const { return fuelAllocated; }
+    Truck* getTruck() const { return truck; }
+    Driver* getDriver() const { return driver; }
+
+    // Display trip information
+    void displayInfo() const {
+        std::cout << "Trip Date: " << tripDate.toString() << std::endl;
+        std::cout << "Check-in Time: " << checkInTime.toString() << std::endl;
+        std::cout << "Check-out Time: " << checkOutTime.toString() << std::endl;
+        std::cout << "Concrete Load: " << concreteLoad << " tonnes" << std::endl;
+        std::cout << "Fuel Allocated: " << fuelAllocated << " liters" << std::endl;
+    }
+};
+
+// Implementation of displayInfo methods that need full definition of all classes
+void Truck::displayInfo() const {
+    std::cout << "Truck Model: " << model << std::endl;
+    std::cout << "Fuel Remaining: " << currentFuel << " / " << fuelCapacity << " liters" << std::endl;
+    std::cout << "Days Until Maintenance: " << getDaysUntilMaintenance() << std::endl;
+    std::cout << "Load Capacity: " << loadCapacity << " tonnes" << std::endl;
+    
+    if (currentDriver) {
+        std::cout << "Current Driver: " << currentDriver->getName() << " (Vehicle #: " 
+                  << currentDriver->vehicleNumber << ")" << std::endl;
+    } else {
+        std::cout << "No driver assigned" << std::endl;
+    }
+}
+
+void Driver::displayInfo() const {
+    std::cout << "Driver Name: " << name << std::endl;
+    std::cout << "Phone Number: " << phoneNumber << std::endl;
+    std::cout << "Vehicle Number: " << vehicleNumber << std::endl;
+    std::cout << "Joining Date: " << joiningDate.toString() << std::endl;
+    
+    if (leavingDate.daysBetween(Date(31, 12, 9999)) == 0) {
+        std::cout << "Status: Active" << std::endl;
+    } else {
+        std::cout << "Leaving Date: " << leavingDate.toString() << std::endl;
+        std::cout << "Status: Inactive" << std::endl;
+    }
+    
+    if (assignedTruck) {
+        std::cout << "Assigned Truck: " << assignedTruck->getModel() << std::endl;
+    } else {
+        std::cout << "No truck assigned" << std::endl;
+    }
+}
+
+// Factory class to manage all entities
+class Factory {
+private:
+    std::vector<std::unique_ptr<Truck>> trucks;
+    std::vector<std::unique_ptr<Driver>> drivers;
+    std::vector<std::unique_ptr<Trip>> trips;
+
+public:
+    Factory() = default;
+    
+    // Truck management
+    Truck* addTruck(const std::string& model, double fuelCapacity, double loadCapacity, int maintInterval) {
+        std::unique_ptr<Truck> truck = std::make_unique<Truck>(model, fuelCapacity, loadCapacity, maintInterval);
+        Truck* truckPtr = truck.get();
+        trucks.push_back(std::move(truck));
+        return truckPtr;
+    }
+    
+    // Driver management
+    Driver* addDriver(const std::string& name, const std::string& phone, const std::string& vehicleNum, const Date& joinDate = Date()) {
+        // Check if vehicle number is already taken
+        if (Driver::findByVehicleNumber(vehicleNum) != nullptr) {
+            throw std::invalid_argument("Vehicle number already assigned to another driver");
+        }
+        
+        std::unique_ptr<Driver> driver = std::make_unique<Driver>(name, phone, vehicleNum, joinDate);
+        Driver* driverPtr = driver.get();
+        drivers.push_back(std::move(driver));
+        return driverPtr;
+    }
+    
+    // Trip management
+    Trip* createTrip(Truck* truck, Driver* driver, const Date& date, const Time& checkIn, 
+                     double concrete, double fuel) {
+        std::unique_ptr<Trip> trip = std::make_unique<Trip>(truck, driver, date, checkIn, concrete, fuel);
+        Trip* tripPtr = trip.get();
+        trips.push_back(std::move(trip));
+        return tripPtr;
+    }
+    
+    // Lookup functions
+    void findTruckByDriverVehicleNumber(const std::string& vehicleNum) {
+        Driver* driver = Driver::findByVehicleNumber(vehicleNum);
+        if (!driver) {
+            std::cout << "No driver found with vehicle number: " << vehicleNum << std::endl;
+            return;
+        }
+        
+        std::cout << "\n===== DRIVER INFORMATION =====" << std::endl;
+        driver->displayInfo();
+        
+        Truck* truck = driver->getAssignedTruck();
+        if (truck) {
+            std::cout << "\n===== TRUCK INFORMATION =====" << std::endl;
+            truck->displayInfo();
+        } else {
+            std::cout << "\nThis driver has no truck assigned." << std::endl;
+        }
+    }
+    
+    // Display all data
+    void displayAllTrucks() const {
+        std::cout << "\n===== ALL TRUCKS (" << trucks.size() << ") =====" << std::endl;
+        for (const auto& truck : trucks) {
+            truck->displayInfo();
+            std::cout << "-------------------------" << std::endl;
+        }
+    }
+    
+    void displayAllDrivers() const {
+        std::cout << "\n===== ALL DRIVERS (" << drivers.size() << ") =====" << std::endl;
+        for (const auto& driver : drivers) {
+            driver->displayInfo();
+            std::cout << "-------------------------" << std::endl;
+        }
+    }
+};
+
+// Main function to demonstrate the system
+int main() {
+    Factory constructionFactory;
+    
+    // Add trucks
+    Truck* truck1 = constructionFactory.addTruck("Volvo FMX", 400, 30, 90);
+    Truck* truck2 = constructionFactory.addTruck("Tata Prima", 350, 25, 60);
+    Truck* truck3 = constructionFactory.addTruck("Mercedes Actros", 450, 35, 120);
+    
+    // Add drivers
+    Driver* driver1 = constructionFactory.addDriver("John Smith", "555-1234", "T001", Date(15, 3, 2023));
+    Driver* driver2 = constructionFactory.addDriver("Mike Johnson", "555-5678", "T002", Date(22, 7, 2023));
+    Driver* driver3 = constructionFactory.addDriver("Robert Davis", "555-9012", "T003", Date(10, 1, 2024));
+    
+    // Assign trucks to drivers
+    driver1->assignTruck(truck1);
+    driver2->assignTruck(truck2);
+    driver3->assignTruck(truck3);
+    
+    // Create trips
+    Trip* trip1 = constructionFactory.createTrip(truck1, driver1, Date(5, 3, 2025), Time(8, 30), 25, 50);
+    trip1->setCheckOutTime(Time(17, 15));
+    
+    Trip* trip2 = constructionFactory.createTrip(truck2, driver2, Date(5, 3, 2025), Time(9, 0), 20, 45);
+    trip2->setCheckOutTime(Time(16, 45));
+    
+    // Simulate operations
+    truck1->consumeFuel(30); // Used some fuel
+    truck2->refillFuel(100); // Refilled fuel
+    
+    // Main menu
+    int choice;
+    std::string vehicleNumber;
+    
+    do {
+        std::cout << "\n===== CONSTRUCTION FACTORY MANAGEMENT SYSTEM =====" << std::endl;
+        std::cout << "1. Find truck by driver vehicle number" << std::endl;
+        std::cout << "2. Display all trucks" << std::endl;
+        std::cout << "3. Display all drivers" << std::endl;
+        std::cout << "0. Exit" << std::endl;
+        std::cout << "Enter your choice: ";
+        std::cin >> choice;
+        
+        switch (choice) {
+            case 1:
+                std::cout << "Enter driver vehicle number: ";
+                std::cin >> vehicleNumber;
+                constructionFactory.findTruckByDriverVehicleNumber(vehicleNumber);
+                break;
+            case 2:
+                constructionFactory.displayAllTrucks();
+                break;
+            case 3:
+                constructionFactory.displayAllDrivers();
+                break;
+            case 0:
+                std::cout << "Exiting system. Goodbye!" << std::endl;
+                break;
+            default:
+                std::cout << "Invalid choice. Please try again." << std::endl;
+        }
+    } while (choice != 0);
+    
+    return 0;
+}
